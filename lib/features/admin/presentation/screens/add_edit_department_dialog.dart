@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:uuid/uuid.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_text_styles.dart';
 import '../../../../core/widgets/custom_button.dart';
@@ -39,12 +40,12 @@ class _AddEditDepartmentDialogState
       _nameController.text = widget.department!.name;
       _codeController.text = widget.department!.code;
       _descriptionController.text = widget.department!.description ?? '';
-    } else {
-      // Auto-generate code from name for new departments
-      _nameController.addListener(_autoGenerateCode);
     }
+    // Code field will be auto-filled after creation, no need for listener
   }
 
+  // This function is no longer used for new department code generation
+  // but kept for context if needed elsewhere or for future changes.
   void _autoGenerateCode() {
     if (!_isEditMode) {
       final name = _nameController.text.trim().replaceAll(' ', '');
@@ -66,9 +67,6 @@ class _AddEditDepartmentDialogState
 
   @override
   void dispose() {
-    if (!_isEditMode) {
-      _nameController.removeListener(_autoGenerateCode);
-    }
     _nameController.dispose();
     _codeController.dispose();
     _descriptionController.dispose();
@@ -87,41 +85,37 @@ class _AddEditDepartmentDialogState
 
     try {
       final repository = ref.read(departmentRepositoryProvider);
-      final code = _codeController.text.trim().toUpperCase();
-
-      // Check if code is unique
-      final isUnique = await repository.isDepartmentCodeUnique(
-        code,
-        excludeId: widget.department?.id,
-      );
-
-      if (!isUnique) {
-        setState(() {
-          _errorMessage = 'Department code "$code" is already in use';
-          _isLoading = false;
-        });
-        return;
-      }
 
       if (_isEditMode) {
+        // For edit mode, check if code is unique
+        final code = _codeController.text.trim().toUpperCase();
+        final isUnique = await repository.isDepartmentCodeUnique(
+          code,
+          excludeId: widget.department?.id,
+        );
+
+        if (!isUnique) {
+          setState(() {
+            _errorMessage = 'Department code "$code" is already in use';
+            _isLoading = false;
+          });
+          return;
+        }
+
         // Update existing department
         final updated = widget.department!.copyWith(
           name: _nameController.text.trim(),
           code: code,
-          description: _descriptionController.text.trim().isEmpty
-              ? null
-              : _descriptionController.text.trim(),
+          description: _descriptionController.text.trim(),
         );
         await repository.updateDepartment(updated);
       } else {
-        // Create new department
+        // Create new department (code will be auto-generated as Firebase ID)
         final newDepartment = DepartmentModel(
           id: '', // Will be set by Firebase
           name: _nameController.text.trim(),
-          code: code,
-          description: _descriptionController.text.trim().isEmpty
-              ? null
-              : _descriptionController.text.trim(),
+          code: '', // Will be set to match the ID by repository
+          description: _descriptionController.text.trim(),
         );
         await repository.createDepartment(newDepartment);
       }
@@ -215,27 +209,22 @@ class _AddEditDepartmentDialogState
                 // Department Code
                 CustomTextField(
                   controller: _codeController,
-                  labelText: _isEditMode
-                      ? 'Department Code'
-                      : 'Department Code (Auto-generated)',
-                  hintText: 'Auto-filled from department name',
+                  labelText: 'Department Code',
+                  hintText: _isEditMode
+                      ? '8-character unique code'
+                      : 'Will be auto-generated on save',
                   prefixIcon: const Icon(Icons.tag),
-                  readOnly: !_isEditMode, // Read-only for new departments
+                  readOnly: true, // Always read-only
                   enabled: _isEditMode, // Disabled styling for new departments
-                  maxLength: 4,
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Department code is required';
-                    }
-                    final code = value.trim().toUpperCase();
-                    if (code.length != 4) {
-                      return 'Code must be exactly 4 letters';
-                    }
-                    if (!RegExp(r'^[A-Z]{4}$').hasMatch(code)) {
-                      return 'Code must contain only letters';
-                    }
-                    return null;
-                  },
+                  maxLength: null, // No limit since it's readonly
+                  validator: _isEditMode
+                      ? (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Department code is required';
+                          }
+                          return null;
+                        }
+                      : null, // No validation for new departments
                 ),
 
                 SizedBox(height: 16.h),

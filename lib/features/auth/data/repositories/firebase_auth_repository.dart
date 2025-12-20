@@ -86,28 +86,35 @@ class FirebaseAuthRepository implements AuthRepository {
         throw Exception('Phone number not found');
       }
 
-      // Look up user by phone number (not UID)
-      final querySnapshot = await _firestore
+      // STEP 1: Look up user in auth lookup table (users collection)
+      final authLookupSnapshot = await _firestore
           .collection(FirebaseConstants.usersCollection)
           .where(FirebaseConstants.phoneField, isEqualTo: phoneNumber)
           .limit(1)
           .get();
 
-      if (querySnapshot.docs.isEmpty) {
+      if (authLookupSnapshot.docs.isEmpty) {
         throw Exception(
           'User not found. Please contact your administrator to create your account.',
         );
       }
 
-      // Get user document
-      final userDoc = querySnapshot.docs.first;
-      final userData = userDoc.data();
+      final authLookupDoc = authLookupSnapshot.docs.first;
+      final authData = authLookupDoc.data();
 
-      // Parse user model
-      final user = UserModel.fromJson({...userData, 'id': userDoc.id});
+      // Extract role and role-specific document ID
+      final roleString = authData['role'] as String?;
+      final roleDocId = authData['roleDocId'] as String?;
+      final isActive = authData['isActive'] as bool? ?? true;
+
+      if (roleString == null || roleDocId == null) {
+        throw Exception(
+          'Invalid user data. Please contact your administrator.',
+        );
+      }
 
       // Check if user is active
-      if (!user.isActive) {
+      if (!isActive) {
         // Sign out the user
         await _firebaseAuth.signOut();
         throw Exception(
@@ -115,9 +122,53 @@ class FirebaseAuthRepository implements AuthRepository {
         );
       }
 
-      // Update lastUsed timestamp
-      await userDoc.reference.update({
-        FirebaseConstants.lastUsedField: FieldValue.serverTimestamp(),
+      // Parse role
+      final UserRole role;
+      switch (roleString) {
+        case 'super_admin':
+          role = UserRole.superAdmin;
+          break;
+        case 'department_head':
+          role = UserRole.departmentHead;
+          break;
+        case 'employee':
+          role = UserRole.employee;
+          break;
+        default:
+          throw Exception(
+            'Invalid user role. Please contact your administrator.',
+          );
+      }
+
+      // STEP 2: Fetch full user profile from role-specific collection
+      final collectionName = _getCollectionForRole(role);
+      final userProfileDoc = await _firestore
+          .collection(collectionName)
+          .doc(roleDocId)
+          .get();
+
+      if (!userProfileDoc.exists) {
+        throw Exception(
+          'User profile not found. Please contact your administrator.',
+        );
+      }
+
+      final userData = userProfileDoc.data()!;
+
+      // Parse user model
+      final user = UserModel.fromJson({...userData, 'id': userProfileDoc.id});
+
+      // Update lastUsed timestamp in both collections
+      final timestamp = FieldValue.serverTimestamp();
+
+      // Update auth lookup record
+      await authLookupDoc.reference.update({
+        FirebaseConstants.lastUsedField: timestamp,
+      });
+
+      // Update role-specific profile
+      await userProfileDoc.reference.update({
+        FirebaseConstants.lastUsedField: timestamp,
       });
 
       return user;
@@ -146,18 +197,48 @@ class FirebaseAuthRepository implements AuthRepository {
       final phoneNumber = currentUser.phoneNumber;
       if (phoneNumber == null) return null;
 
-      // Look up user by phone number
-      final querySnapshot = await _firestore
+      // STEP 1: Look up user in auth lookup table
+      final authLookupSnapshot = await _firestore
           .collection(FirebaseConstants.usersCollection)
           .where(FirebaseConstants.phoneField, isEqualTo: phoneNumber)
           .limit(1)
           .get();
 
-      if (querySnapshot.docs.isEmpty) return null;
+      if (authLookupSnapshot.docs.isEmpty) return null;
 
-      final userDoc = querySnapshot.docs.first;
-      final userData = userDoc.data();
-      return UserModel.fromJson({...userData, 'id': userDoc.id});
+      final authData = authLookupSnapshot.docs.first.data();
+      final roleString = authData['role'] as String?;
+      final roleDocId = authData['roleDocId'] as String?;
+
+      if (roleString == null || roleDocId == null) return null;
+
+      // Parse role
+      final UserRole role;
+      switch (roleString) {
+        case 'super_admin':
+          role = UserRole.superAdmin;
+          break;
+        case 'department_head':
+          role = UserRole.departmentHead;
+          break;
+        case 'employee':
+          role = UserRole.employee;
+          break;
+        default:
+          return null;
+      }
+
+      // STEP 2: Fetch full profile from role-specific collection
+      final collectionName = _getCollectionForRole(role);
+      final userProfileDoc = await _firestore
+          .collection(collectionName)
+          .doc(roleDocId)
+          .get();
+
+      if (!userProfileDoc.exists) return null;
+
+      final userData = userProfileDoc.data()!;
+      return UserModel.fromJson({...userData, 'id': userProfileDoc.id});
     } catch (e) {
       throw Exception('Failed to get current user: ${e.toString()}');
     }
@@ -171,6 +252,18 @@ class FirebaseAuthRepository implements AuthRepository {
   @override
   bool isSignedIn() {
     return _firebaseAuth.currentUser != null;
+  }
+
+  // Helper to get collection name for role
+  String _getCollectionForRole(UserRole role) {
+    switch (role) {
+      case UserRole.superAdmin:
+        return FirebaseConstants.superAdminsCollection;
+      case UserRole.departmentHead:
+        return FirebaseConstants.departmentHeadsCollection;
+      case UserRole.employee:
+        return FirebaseConstants.employeesCollection;
+    }
   }
 
   // Error handling helpers

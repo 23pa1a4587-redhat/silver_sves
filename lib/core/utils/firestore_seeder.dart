@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../features/auth/data/models/user_model.dart';
 import '../constants/firebase_constants.dart';
+import 'user_id_generator.dart';
 
 /// Utility class to seed test data in Firestore
 class FirestoreSeeder {
@@ -12,11 +13,34 @@ class FirestoreSeeder {
   /// Seed test users in Firestore
   Future<void> seedTestUsers() async {
     try {
+      // First, get an existing active department to use for test users
+      final deptSnapshot = await _firestore
+          .collection(FirebaseConstants.departmentsCollection)
+          .where('is_active', isEqualTo: true)
+          .limit(1)
+          .get();
+
+      String? departmentId;
+      String? departmentName;
+
+      if (deptSnapshot.docs.isNotEmpty) {
+        final dept = deptSnapshot.docs.first;
+        departmentId = dept.id;
+        departmentName = dept.data()['name'] as String?;
+        print(
+          '📁 Using existing department: $departmentName (ID: $departmentId)',
+        );
+      } else {
+        print(
+          '⚠️  No active departments found. Creating users without department.',
+        );
+      }
+
       // Test User 1: Super Admin
       await _createUser(
-        id: 'super_admin_test_001',
+        uidSuffix: 'test_001',
         user: UserModel(
-          id: 'super_admin_test_001',
+          id: '', // Will be set by _createUser
           name: 'Super Admin',
           phone: '+919999999999',
           role: UserRole.superAdmin,
@@ -29,17 +53,19 @@ class FirestoreSeeder {
         ),
       );
 
-      // Test User 2: Department Head
+      // Test User 2: Department Head (with department)
       await _createUser(
-        id: 'dept_head_test_001',
+        uidSuffix: 'test_002',
         user: UserModel(
-          id: 'dept_head_test_001',
+          id: '', // Will be set by _createUser
           name: 'Department Head',
           phone: '+919999999998',
           role: UserRole.departmentHead,
-          employeeId: 'DH001',
-          departmentId: 'dept_1',
-          departmentName: 'Engineering',
+          employeeId: departmentId != null
+              ? '${departmentName?.substring(0, 4).toUpperCase() ?? "DEPT"}001'
+              : 'DH001',
+          departmentId: departmentId,
+          departmentName: departmentName,
           joiningDate: DateTime.now().subtract(const Duration(days: 180)),
           lastUsed: DateTime.now(),
           isActive: true,
@@ -48,17 +74,19 @@ class FirestoreSeeder {
         ),
       );
 
-      // Test User 3: Employee
+      // Test User 3: Employee (with department)
       await _createUser(
-        id: 'employee_test_001',
+        uidSuffix: 'test_003',
         user: UserModel(
-          id: 'employee_test_001',
+          id: '', // Will be set by _createUser
           name: 'John Employee',
           phone: '+919999999997',
           role: UserRole.employee,
-          employeeId: 'EMP001',
-          departmentId: 'dept_1',
-          departmentName: 'Engineering',
+          employeeId: departmentId != null
+              ? '${departmentName?.substring(0, 4).toUpperCase() ?? "DEPT"}002'
+              : 'EMP001',
+          departmentId: departmentId,
+          departmentName: departmentName,
           joiningDate: DateTime.now().subtract(const Duration(days: 90)),
           lastUsed: DateTime.now(),
           isActive: true,
@@ -68,6 +96,9 @@ class FirestoreSeeder {
       );
 
       print('✅ Successfully seeded 3 test users!');
+      if (departmentId != null) {
+        print('   - Assigned to department: $departmentName');
+      }
     } catch (e) {
       print('❌ Error seeding test users: $e');
       rethrow;
@@ -76,34 +107,79 @@ class FirestoreSeeder {
 
   /// Create a user document in Firestore
   Future<void> _createUser({
-    required String id,
+    required String uidSuffix,
     required UserModel user,
   }) async {
-    await _firestore
-        .collection(FirebaseConstants.usersCollection)
-        .doc(id)
-        .set(user.toJson());
+    // Generate role-based ID
+    final userId = UserIdGenerator.generateUserId(user.role, uidSuffix);
+    final collectionName = UserIdGenerator.getCollectionForRole(user.role);
 
-    print('✅ Created user: ${user.name} (${user.phone})');
+    // Create user with prefixed ID
+    final userWithId = user.copyWith(id: userId);
+
+    // Store full profile in role-specific collection
+    await _firestore
+        .collection(collectionName)
+        .doc(userId)
+        .set(userWithId.toJson());
+
+    // Create auth lookup record in users collection
+    await _firestore.collection(FirebaseConstants.usersCollection).add({
+      'phone': user.phone,
+      'role': _getRoleString(user.role),
+      'roleDocId': userId,
+      'isActive': user.isActive,
+      'lastUsed': FieldValue.serverTimestamp(),
+    });
+
+    print('✅ Created user: ${user.name} (${user.phone}) with ID: $userId');
+  }
+
+  /// Helper to convert UserRole enum to string
+  String _getRoleString(UserRole role) {
+    switch (role) {
+      case UserRole.superAdmin:
+        return 'super_admin';
+      case UserRole.departmentHead:
+        return 'department_head';
+      case UserRole.employee:
+        return 'employee';
+    }
   }
 
   /// Clear all test users (cleanup)
   Future<void> clearTestUsers() async {
     try {
+      // Delete from role-specific collections
       await _firestore
-          .collection(FirebaseConstants.usersCollection)
-          .doc('super_admin_test_001')
+          .collection(FirebaseConstants.superAdminsCollection)
+          .doc(UserIdGenerator.generateUserId(UserRole.superAdmin, 'test_001'))
           .delete();
 
       await _firestore
-          .collection(FirebaseConstants.usersCollection)
-          .doc('dept_head_test_001')
+          .collection(FirebaseConstants.departmentHeadsCollection)
+          .doc(
+            UserIdGenerator.generateUserId(UserRole.departmentHead, 'test_002'),
+          )
           .delete();
 
       await _firestore
-          .collection(FirebaseConstants.usersCollection)
-          .doc('employee_test_001')
+          .collection(FirebaseConstants.employeesCollection)
+          .doc(UserIdGenerator.generateUserId(UserRole.employee, 'test_003'))
           .delete();
+
+      // Delete auth lookup records
+      final authDocs = await _firestore
+          .collection(FirebaseConstants.usersCollection)
+          .where(
+            'phone',
+            whereIn: ['+919999999999', '+919999999998', '+919999999997'],
+          )
+          .get();
+
+      for (final doc in authDocs.docs) {
+        await doc.reference.delete();
+      }
 
       print('✅ Cleared all test users!');
     } catch (e) {
@@ -135,12 +211,12 @@ class FirestoreSeeder {
 
   /// Seed all test data (users + department)
   Future<void> seedAllTestData() async {
-    print('🌱 Starting to seed test data...\n');
+    print('🌱 Starting to seed test data...\\n');
 
     await seedTestDepartment();
     await seedTestUsers();
 
-    print('\n🎉 All test data seeded successfully!');
+    print('\\n🎉 All test data seeded successfully!');
     print('📝 Test Users Created:');
     print('   1. Super Admin     - +919999999999 (OTP: 123456)');
     print('   2. Department Head - +919999999998 (OTP: 123456)');

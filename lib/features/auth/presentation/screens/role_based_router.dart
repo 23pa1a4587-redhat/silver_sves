@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/user_model.dart';
 import '../providers/user_provider.dart';
 import '../../../admin/presentation/screens/admin_dashboard.dart';
+import '../../../department_head/presentation/screens/department_head_dashboard.dart';
 import 'home_screen.dart';
 
 /// Route handler that navigates to correct dashboard based on user role
@@ -26,8 +27,7 @@ class RoleBasedRouter extends ConsumerWidget {
         if (user.isSuperAdmin) {
           return const AdminDashboard();
         } else if (user.isDepartmentHead) {
-          // TODO: Create Department Head Dashboard
-          return const HomeScreen(); // Temporary - use old home screen
+          return const DepartmentHeadDashboard();
         } else {
           // Employee
           // TODO: Create Employee Dashboard

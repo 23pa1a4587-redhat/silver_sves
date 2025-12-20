@@ -24,17 +24,21 @@ mixin _$DepartmentModel {
   String get id => throw _privateConstructorUsedError;
   String get name => throw _privateConstructorUsedError;
   String get code =>
-      throw _privateConstructorUsedError; // 4-letter code for employee ID generation (e.g., ACAD, ENG)
-  String? get description => throw _privateConstructorUsedError;
-  String? get headId =>
-      throw _privateConstructorUsedError; // Department head user ID
-  String? get headName =>
-      throw _privateConstructorUsedError; // Department head name (denormalized)
+      throw _privateConstructorUsedError; // Made optional with default
+  String get description => throw _privateConstructorUsedError;
+  @JsonKey(name: 'head_id')
+  String? get headId => throw _privateConstructorUsedError;
+  @JsonKey(name: 'head_name')
+  String? get headName => throw _privateConstructorUsedError;
+  @JsonKey(name: 'employee_count')
   int get employeeCount => throw _privateConstructorUsedError;
-  int get employeeIdCounter =>
-      throw _privateConstructorUsedError; // Auto-increment counter for employee IDs
+  @JsonKey(name: 'employee_id_counter')
+  int get employeeIdCounter => throw _privateConstructorUsedError;
+  @JsonKey(name: 'is_active')
   bool get isActive => throw _privateConstructorUsedError;
+  @JsonKey(name: 'created_at')
   DateTime? get createdAt => throw _privateConstructorUsedError;
+  @JsonKey(name: 'updated_at')
   DateTime? get updatedAt => throw _privateConstructorUsedError;
 
   /// Serializes this DepartmentModel to a JSON map.
@@ -58,14 +62,14 @@ abstract class $DepartmentModelCopyWith<$Res> {
     String id,
     String name,
     String code,
-    String? description,
-    String? headId,
-    String? headName,
-    int employeeCount,
-    int employeeIdCounter,
-    bool isActive,
-    DateTime? createdAt,
-    DateTime? updatedAt,
+    String description,
+    @JsonKey(name: 'head_id') String? headId,
+    @JsonKey(name: 'head_name') String? headName,
+    @JsonKey(name: 'employee_count') int employeeCount,
+    @JsonKey(name: 'employee_id_counter') int employeeIdCounter,
+    @JsonKey(name: 'is_active') bool isActive,
+    @JsonKey(name: 'created_at') DateTime? createdAt,
+    @JsonKey(name: 'updated_at') DateTime? updatedAt,
   });
 }
 
@@ -87,7 +91,7 @@ class _$DepartmentModelCopyWithImpl<$Res, $Val extends DepartmentModel>
     Object? id = null,
     Object? name = null,
     Object? code = null,
-    Object? description = freezed,
+    Object? description = null,
     Object? headId = freezed,
     Object? headName = freezed,
     Object? employeeCount = null,
@@ -110,10 +114,10 @@ class _$DepartmentModelCopyWithImpl<$Res, $Val extends DepartmentModel>
                 ? _value.code
                 : code // ignore: cast_nullable_to_non_nullable
                       as String,
-            description: freezed == description
+            description: null == description
                 ? _value.description
                 : description // ignore: cast_nullable_to_non_nullable
-                      as String?,
+                      as String,
             headId: freezed == headId
                 ? _value.headId
                 : headId // ignore: cast_nullable_to_non_nullable
@@ -161,14 +165,14 @@ abstract class _$$DepartmentModelImplCopyWith<$Res>
     String id,
     String name,
     String code,
-    String? description,
-    String? headId,
-    String? headName,
-    int employeeCount,
-    int employeeIdCounter,
-    bool isActive,
-    DateTime? createdAt,
-    DateTime? updatedAt,
+    String description,
+    @JsonKey(name: 'head_id') String? headId,
+    @JsonKey(name: 'head_name') String? headName,
+    @JsonKey(name: 'employee_count') int employeeCount,
+    @JsonKey(name: 'employee_id_counter') int employeeIdCounter,
+    @JsonKey(name: 'is_active') bool isActive,
+    @JsonKey(name: 'created_at') DateTime? createdAt,
+    @JsonKey(name: 'updated_at') DateTime? updatedAt,
   });
 }
 
@@ -189,7 +193,7 @@ class __$$DepartmentModelImplCopyWithImpl<$Res>
     Object? id = null,
     Object? name = null,
     Object? code = null,
-    Object? description = freezed,
+    Object? description = null,
     Object? headId = freezed,
     Object? headName = freezed,
     Object? employeeCount = null,
@@ -212,10 +216,10 @@ class __$$DepartmentModelImplCopyWithImpl<$Res>
             ? _value.code
             : code // ignore: cast_nullable_to_non_nullable
                   as String,
-        description: freezed == description
+        description: null == description
             ? _value.description
             : description // ignore: cast_nullable_to_non_nullable
-                  as String?,
+                  as String,
         headId: freezed == headId
             ? _value.headId
             : headId // ignore: cast_nullable_to_non_nullable
@@ -255,15 +259,15 @@ class _$DepartmentModelImpl implements _DepartmentModel {
   const _$DepartmentModelImpl({
     required this.id,
     required this.name,
-    required this.code,
-    this.description,
-    this.headId,
-    this.headName,
-    this.employeeCount = 0,
-    this.employeeIdCounter = 0,
-    this.isActive = true,
-    this.createdAt,
-    this.updatedAt,
+    this.code = '',
+    this.description = '',
+    @JsonKey(name: 'head_id') this.headId,
+    @JsonKey(name: 'head_name') this.headName,
+    @JsonKey(name: 'employee_count') this.employeeCount = 0,
+    @JsonKey(name: 'employee_id_counter') this.employeeIdCounter = 0,
+    @JsonKey(name: 'is_active') this.isActive = true,
+    @JsonKey(name: 'created_at') this.createdAt,
+    @JsonKey(name: 'updated_at') this.updatedAt,
   });
 
   factory _$DepartmentModelImpl.fromJson(Map<String, dynamic> json) =>
@@ -274,29 +278,32 @@ class _$DepartmentModelImpl implements _DepartmentModel {
   @override
   final String name;
   @override
+  @JsonKey()
   final String code;
-  // 4-letter code for employee ID generation (e.g., ACAD, ENG)
-  @override
-  final String? description;
-  @override
-  final String? headId;
-  // Department head user ID
-  @override
-  final String? headName;
-  // Department head name (denormalized)
+  // Made optional with default
   @override
   @JsonKey()
+  final String description;
+  @override
+  @JsonKey(name: 'head_id')
+  final String? headId;
+  @override
+  @JsonKey(name: 'head_name')
+  final String? headName;
+  @override
+  @JsonKey(name: 'employee_count')
   final int employeeCount;
   @override
-  @JsonKey()
+  @JsonKey(name: 'employee_id_counter')
   final int employeeIdCounter;
-  // Auto-increment counter for employee IDs
   @override
-  @JsonKey()
+  @JsonKey(name: 'is_active')
   final bool isActive;
   @override
+  @JsonKey(name: 'created_at')
   final DateTime? createdAt;
   @override
+  @JsonKey(name: 'updated_at')
   final DateTime? updatedAt;
 
   @override
@@ -367,15 +374,15 @@ abstract class _DepartmentModel implements DepartmentModel {
   const factory _DepartmentModel({
     required final String id,
     required final String name,
-    required final String code,
-    final String? description,
-    final String? headId,
-    final String? headName,
-    final int employeeCount,
-    final int employeeIdCounter,
-    final bool isActive,
-    final DateTime? createdAt,
-    final DateTime? updatedAt,
+    final String code,
+    final String description,
+    @JsonKey(name: 'head_id') final String? headId,
+    @JsonKey(name: 'head_name') final String? headName,
+    @JsonKey(name: 'employee_count') final int employeeCount,
+    @JsonKey(name: 'employee_id_counter') final int employeeIdCounter,
+    @JsonKey(name: 'is_active') final bool isActive,
+    @JsonKey(name: 'created_at') final DateTime? createdAt,
+    @JsonKey(name: 'updated_at') final DateTime? updatedAt,
   }) = _$DepartmentModelImpl;
 
   factory _DepartmentModel.fromJson(Map<String, dynamic> json) =
@@ -386,22 +393,29 @@ abstract class _DepartmentModel implements DepartmentModel {
   @override
   String get name;
   @override
-  String get code; // 4-letter code for employee ID generation (e.g., ACAD, ENG)
+  String get code; // Made optional with default
   @override
-  String? get description;
+  String get description;
   @override
-  String? get headId; // Department head user ID
+  @JsonKey(name: 'head_id')
+  String? get headId;
   @override
-  String? get headName; // Department head name (denormalized)
+  @JsonKey(name: 'head_name')
+  String? get headName;
   @override
+  @JsonKey(name: 'employee_count')
   int get employeeCount;
   @override
-  int get employeeIdCounter; // Auto-increment counter for employee IDs
+  @JsonKey(name: 'employee_id_counter')
+  int get employeeIdCounter;
   @override
+  @JsonKey(name: 'is_active')
   bool get isActive;
   @override
+  @JsonKey(name: 'created_at')
   DateTime? get createdAt;
   @override
+  @JsonKey(name: 'updated_at')
   DateTime? get updatedAt;
 
   /// Create a copy of DepartmentModel

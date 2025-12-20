@@ -15,8 +15,8 @@ _$DepartmentModelImpl _$$DepartmentModelImplFromJson(
     final val = _$DepartmentModelImpl(
       id: $checkedConvert('id', (v) => v as String),
       name: $checkedConvert('name', (v) => v as String),
-      code: $checkedConvert('code', (v) => v as String),
-      description: $checkedConvert('description', (v) => v as String?),
+      code: $checkedConvert('code', (v) => v as String? ?? ''),
+      description: $checkedConvert('description', (v) => v as String? ?? ''),
       headId: $checkedConvert('head_id', (v) => v as String?),
       headName: $checkedConvert('head_name', (v) => v as String?),
       employeeCount: $checkedConvert(

@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/constants/firebase_constants.dart';
+import '../../../../core/utils/employee_id_generator.dart';
+import '../../../../core/utils/user_id_generator.dart';
 import '../../../auth/data/models/user_model.dart';
 import '../../domain/repositories/user_repository.dart';
 
@@ -13,22 +15,46 @@ class FirebaseUserRepository implements UserRepository {
   @override
   Future<UserModel> createUser(UserModel user) async {
     try {
+      // Generate role-specific ID (will be set when we have Firebase UID)
+      // For now, use Firestore auto-generated ID
+      final collectionName = UserIdGenerator.getCollectionForRole(user.role);
+      final collectionRef = _firestore.collection(collectionName);
+
+      // Create document with auto-generated ID first
+      final tempDocRef = collectionRef.doc();
+      final roleDocId = UserIdGenerator.generateUserId(
+        user.role,
+        tempDocRef.id,
+      );
+
+      // Now create with the prefixed ID
+      final docRef = collectionRef.doc(roleDocId);
+
       final userData = user
-          .copyWith(createdAt: DateTime.now(), updatedAt: DateTime.now())
+          .copyWith(
+            id: roleDocId,
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          )
           .toJson();
 
-      final docRef = await _firestore
-          .collection(FirebaseConstants.usersCollection)
-          .add(userData);
+      // Create full user profile in role-specific collection
+      await docRef.set(userData);
 
       final createdUser = user.copyWith(
-        id: docRef.id,
+        id: roleDocId,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
 
-      // Update with the generated ID
-      await docRef.update({'id': docRef.id});
+      // Create auth lookup record in users collection
+      await _firestore.collection(FirebaseConstants.usersCollection).add({
+        'phone': user.phone,
+        'role': _getRoleString(user.role),
+        'roleDocId': roleDocId,
+        'isActive': user.isActive,
+        'lastUsed': FieldValue.serverTimestamp(),
+      });
 
       // Update department statistics if user has a department
       if (user.departmentId != null) {
@@ -48,43 +74,98 @@ class FirebaseUserRepository implements UserRepository {
     String? departmentId,
   }) {
     try {
-      Query query = _firestore.collection(FirebaseConstants.usersCollection);
-
-      if (activeOnly) {
-        query = query.where('isActive', isEqualTo: true);
-      }
-
+      // If role is specified, query only that role's collection
       if (role != null) {
-        query = query.where('role', isEqualTo: _getRoleString(role));
+        return _getUsersFromCollection(
+          UserIdGenerator.getCollectionForRole(role),
+          activeOnly: activeOnly,
+          departmentId: departmentId,
+        );
       }
 
-      if (departmentId != null) {
-        query = query.where('departmentId', isEqualTo: departmentId);
-      }
-
-      return query.snapshots().map((snapshot) {
-        final users = snapshot.docs.map((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          return UserModel.fromJson({...data, 'id': doc.id});
-        }).toList();
-
-        // Sort by name in memory to avoid composite index
-        users.sort((a, b) => a.name.compareTo(b.name));
-
-        return users;
-      });
+      // Otherwise, merge streams from all role collections
+      return _getAllUsersFromAllCollections(
+        activeOnly: activeOnly,
+        departmentId: departmentId,
+      );
     } catch (e) {
       throw Exception('Failed to get users: ${e.toString()}');
     }
   }
 
+  // Helper: Get users from a specific collection
+  Stream<List<UserModel>> _getUsersFromCollection(
+    String collectionName, {
+    bool activeOnly = false,
+    String? departmentId,
+  }) {
+    Query query = _firestore.collection(collectionName);
+
+    if (activeOnly) {
+      query = query.where('isActive', isEqualTo: true);
+    }
+
+    if (departmentId != null) {
+      query = query.where('departmentId', isEqualTo: departmentId);
+    }
+
+    return query.snapshots().map((snapshot) {
+      final users = snapshot.docs.map((doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        return UserModel.fromJson({...data, 'id': doc.id});
+      }).toList();
+
+      // Sort by name
+      users.sort((a, b) => a.name.compareTo(b.name));
+      return users;
+    });
+  }
+
+  // Helper: Merge streams from all role collections
+  Stream<List<UserModel>> _getAllUsersFromAllCollections({
+    bool activeOnly = false,
+    String? departmentId,
+  }) {
+    final superAdminStream = _getUsersFromCollection(
+      FirebaseConstants.superAdminsCollection,
+      activeOnly: activeOnly,
+      departmentId: departmentId,
+    );
+    final deptHeadStream = _getUsersFromCollection(
+      FirebaseConstants.departmentHeadsCollection,
+      activeOnly: activeOnly,
+      departmentId: departmentId,
+    );
+    final employeeStream = _getUsersFromCollection(
+      FirebaseConstants.employeesCollection,
+      activeOnly: activeOnly,
+      departmentId: departmentId,
+    );
+
+    // Combine all three streams
+    return superAdminStream.asyncExpand((superAdmins) {
+      return deptHeadStream.asyncExpand((deptHeads) {
+        return employeeStream.map((employees) {
+          final allUsers = [...superAdmins, ...deptHeads, ...employees];
+          allUsers.sort((a, b) => a.name.compareTo(b.name));
+          return allUsers;
+        });
+      });
+    });
+  }
+
   @override
   Future<UserModel?> getUserById(String id) async {
     try {
-      final doc = await _firestore
-          .collection(FirebaseConstants.usersCollection)
-          .doc(id)
-          .get();
+      // Determine collection from ID prefix
+      final role = UserIdGenerator.getRoleFromUserId(id);
+      if (role == null) {
+        // Try all collections for backward compatibility
+        return await _searchUserInAllCollections(id);
+      }
+
+      final collectionName = UserIdGenerator.getCollectionForRole(role);
+      final doc = await _firestore.collection(collectionName).doc(id).get();
 
       if (!doc.exists) return null;
 
@@ -95,43 +176,66 @@ class FirebaseUserRepository implements UserRepository {
     }
   }
 
+  // Helper: Search for user by ID in all collections
+  Future<UserModel?> _searchUserInAllCollections(String id) async {
+    for (final collection in [
+      FirebaseConstants.superAdminsCollection,
+      FirebaseConstants.departmentHeadsCollection,
+      FirebaseConstants.employeesCollection,
+    ]) {
+      final doc = await _firestore.collection(collection).doc(id).get();
+      if (doc.exists) {
+        final data = doc.data()!;
+        return UserModel.fromJson({...data, 'id': doc.id});
+      }
+    }
+    return null;
+  }
+
   @override
   Future<List<UserModel>> searchUsers(String query) async {
     try {
-      // Search by name (case-insensitive)
-      final nameQuery = await _firestore
-          .collection(FirebaseConstants.usersCollection)
-          .where('name', isGreaterThanOrEqualTo: query)
-          .where('name', isLessThan: query + 'z')
-          .get();
-
-      // Search by employee ID
-      final empIdQuery = await _firestore
-          .collection(FirebaseConstants.usersCollection)
-          .where('employeeId', isGreaterThanOrEqualTo: query.toUpperCase())
-          .where('employeeId', isLessThan: query.toUpperCase() + 'Z')
-          .get();
-
-      // Search by phone
-      final phoneQuery = await _firestore
-          .collection(FirebaseConstants.usersCollection)
-          .where('phone', isGreaterThanOrEqualTo: query)
-          .where('phone', isLessThan: query + 'z')
-          .get();
-
-      // Combine results and remove duplicates
       final Set<String> seenIds = {};
       final List<UserModel> users = [];
 
-      for (final doc in [
-        ...nameQuery.docs,
-        ...empIdQuery.docs,
-        ...phoneQuery.docs,
+      // Search across all three role collections
+      for (final collection in [
+        FirebaseConstants.superAdminsCollection,
+        FirebaseConstants.departmentHeadsCollection,
+        FirebaseConstants.employeesCollection,
       ]) {
-        if (!seenIds.contains(doc.id)) {
-          seenIds.add(doc.id);
-          final data = doc.data();
-          users.add(UserModel.fromJson({...data, 'id': doc.id}));
+        // Search by name
+        final nameQuery = await _firestore
+            .collection(collection)
+            .where('name', isGreaterThanOrEqualTo: query)
+            .where('name', isLessThan: query + 'z')
+            .get();
+
+        // Search by employee ID
+        final empIdQuery = await _firestore
+            .collection(collection)
+            .where('employeeId', isGreaterThanOrEqualTo: query.toUpperCase())
+            .where('employeeId', isLessThan: query.toUpperCase() + 'Z')
+            .get();
+
+        // Search by phone
+        final phoneQuery = await _firestore
+            .collection(collection)
+            .where('phone', isGreaterThanOrEqualTo: query)
+            .where('phone', isLessThan: query + 'z')
+            .get();
+
+        // Add results from this collection
+        for (final doc in [
+          ...nameQuery.docs,
+          ...empIdQuery.docs,
+          ...phoneQuery.docs,
+        ]) {
+          if (!seenIds.contains(doc.id)) {
+            seenIds.add(doc.id);
+            final data = doc.data();
+            users.add(UserModel.fromJson({...data, 'id': doc.id}));
+          }
         }
       }
 
@@ -144,28 +248,73 @@ class FirebaseUserRepository implements UserRepository {
   @override
   Future<void> updateUser(UserModel user) async {
     try {
-      // Get old user data to compare changes
-      final oldUserDoc = await _firestore
-          .collection(FirebaseConstants.usersCollection)
-          .doc(user.id)
-          .get();
+      // Try to get the old user data from the correct collection
+      // We don't know which collection they're in if role changed, so we need to find them
+      UserModel? oldUser;
+      String? oldCollectionName;
 
-      if (oldUserDoc.exists) {
-        final oldUser = UserModel.fromJson({
-          ...oldUserDoc.data()!,
-          'id': oldUserDoc.id,
-        });
+      // First try to get from the collection based on current ID prefix
+      final roleFromId = UserIdGenerator.getRoleFromUserId(user.id);
+      if (roleFromId != null) {
+        final collectionName = UserIdGenerator.getCollectionForRole(roleFromId);
+        final doc = await _firestore
+            .collection(collectionName)
+            .doc(user.id)
+            .get();
 
-        // Update department statistics if needed
-        await _updateDepartmentOnUserUpdate(oldUser, user);
+        if (doc.exists) {
+          oldUser = UserModel.fromJson({...doc.data()!, 'id': doc.id});
+          oldCollectionName = collectionName;
+        }
+      }
+
+      // If not found, search all collections (for backward compatibility)
+      if (oldUser == null) {
+        for (final collection in [
+          FirebaseConstants.superAdminsCollection,
+          FirebaseConstants.departmentHeadsCollection,
+          FirebaseConstants.employeesCollection,
+        ]) {
+          final doc = await _firestore
+              .collection(collection)
+              .doc(user.id)
+              .get();
+          if (doc.exists) {
+            oldUser = UserModel.fromJson({...doc.data()!, 'id': doc.id});
+            oldCollectionName = collection;
+            break;
+          }
+        }
+      }
+
+      if (oldUser == null || oldCollectionName == null) {
+        throw Exception('User not found in any collection');
+      }
+
+      // Check for role change (requires migration between collections)
+      if (oldUser.role != user.role) {
+        await _handleRoleChange(oldUser, user);
+        return;
+      }
+
+      // Update department statistics if needed
+      await _updateDepartmentOnUserUpdate(oldUser, user);
+
+      // Check if phone changed (need to update auth lookup)
+      if (oldUser.phone != user.phone) {
+        await _updateAuthLookupPhone(oldUser.phone, user.phone);
       }
 
       final userData = user.copyWith(updatedAt: DateTime.now()).toJson();
 
+      // Update in the correct collection
       await _firestore
-          .collection(FirebaseConstants.usersCollection)
+          .collection(oldCollectionName)
           .doc(user.id)
           .update(userData);
+
+      // Update auth lookup if active status changed
+      await _updateAuthLookupStatus(user.phone, user.isActive);
     } catch (e) {
       throw Exception('Failed to update user: ${e.toString()}');
     }
@@ -174,13 +323,19 @@ class FirebaseUserRepository implements UserRepository {
   @override
   Future<void> deactivateUser(String userId) async {
     try {
-      await _firestore
-          .collection(FirebaseConstants.usersCollection)
-          .doc(userId)
-          .update({
-            'isActive': false,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+      final user = await getUserById(userId);
+      if (user == null) throw Exception('User not found');
+
+      final collectionName = user.getCollectionName();
+
+      // Update role-specific collection
+      await _firestore.collection(collectionName).doc(userId).update({
+        'isActive': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Update auth lookup
+      await _updateAuthLookupStatus(user.phone, false);
     } catch (e) {
       throw Exception('Failed to deactivate user: ${e.toString()}');
     }
@@ -189,13 +344,19 @@ class FirebaseUserRepository implements UserRepository {
   @override
   Future<void> activateUser(String userId) async {
     try {
-      await _firestore
-          .collection(FirebaseConstants.usersCollection)
-          .doc(userId)
-          .update({
-            'isActive': true,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+      final user = await getUserById(userId);
+      if (user == null) throw Exception('User not found');
+
+      final collectionName = user.getCollectionName();
+
+      // Update role-specific collection
+      await _firestore.collection(collectionName).doc(userId).update({
+        'isActive': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Update auth lookup
+      await _updateAuthLookupStatus(user.phone, true);
     } catch (e) {
       throw Exception('Failed to activate user: ${e.toString()}');
     }
@@ -213,7 +374,12 @@ class FirebaseUserRepository implements UserRepository {
 
       // If excluding an ID (for updates), check if any other user has this phone
       if (excludeId != null) {
-        return query.docs.every((doc) => doc.id == excludeId);
+        // Check if the phone belongs to the user being edited (by roleDocId)
+        return query.docs.every((doc) {
+          final data = doc.data();
+          final roleDocId = data['roleDocId'] as String?;
+          return roleDocId == excludeId;
+        });
       }
 
       return false;
@@ -225,14 +391,25 @@ class FirebaseUserRepository implements UserRepository {
   @override
   Future<int> getUserCount({bool activeOnly = true}) async {
     try {
-      Query query = _firestore.collection(FirebaseConstants.usersCollection);
+      int totalCount = 0;
 
-      if (activeOnly) {
-        query = query.where('isActive', isEqualTo: true);
+      // Count users from all three role-specific collections
+      for (final collection in [
+        FirebaseConstants.superAdminsCollection,
+        FirebaseConstants.departmentHeadsCollection,
+        FirebaseConstants.employeesCollection,
+      ]) {
+        Query query = _firestore.collection(collection);
+
+        if (activeOnly) {
+          query = query.where('isActive', isEqualTo: true);
+        }
+
+        final snapshot = await query.count().get();
+        totalCount += snapshot.count ?? 0;
       }
 
-      final snapshot = await query.count().get();
-      return snapshot.count ?? 0;
+      return totalCount;
     } catch (e) {
       throw Exception('Failed to get user count: ${e.toString()}');
     }
@@ -249,10 +426,10 @@ class FirebaseUserRepository implements UserRepository {
         UserRole.employee: 0,
       };
 
+      // Count from each role-specific collection
       for (final role in UserRole.values) {
-        Query query = _firestore
-            .collection(FirebaseConstants.usersCollection)
-            .where('role', isEqualTo: _getRoleString(role));
+        final collection = UserIdGenerator.getCollectionForRole(role);
+        Query query = _firestore.collection(collection);
 
         if (activeOnly) {
           query = query.where('isActive', isEqualTo: true);
@@ -274,19 +451,32 @@ class FirebaseUserRepository implements UserRepository {
     bool activeOnly = true,
   }) async {
     try {
-      Query query = _firestore
-          .collection(FirebaseConstants.usersCollection)
-          .where('departmentId', isEqualTo: departmentId);
+      final List<UserModel> allUsers = [];
 
-      if (activeOnly) {
-        query = query.where('isActive', isEqualTo: true);
+      // Query all three role collections
+      for (final collection in [
+        FirebaseConstants.superAdminsCollection,
+        FirebaseConstants.departmentHeadsCollection,
+        FirebaseConstants.employeesCollection,
+      ]) {
+        Query query = _firestore
+            .collection(collection)
+            .where('departmentId', isEqualTo: departmentId);
+
+        if (activeOnly) {
+          query = query.where('isActive', isEqualTo: true);
+        }
+
+        final snapshot = await query.get();
+        allUsers.addAll(
+          snapshot.docs.map((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            return UserModel.fromJson({...data, 'id': doc.id});
+          }),
+        );
       }
 
-      final snapshot = await query.get();
-      return snapshot.docs.map((doc) {
-        final data = doc.data() as Map<String, dynamic>;
-        return UserModel.fromJson({...data, 'id': doc.id});
-      }).toList();
+      return allUsers;
     } catch (e) {
       throw Exception('Failed to get users by department: ${e.toString()}');
     }
@@ -304,6 +494,86 @@ class FirebaseUserRepository implements UserRepository {
     }
   }
 
+  // Helper: Update auth lookup phone number
+  Future<void> _updateAuthLookupPhone(String oldPhone, String newPhone) async {
+    try {
+      final authSnapshot = await _firestore
+          .collection(FirebaseConstants.usersCollection)
+          .where('phone', isEqualTo: oldPhone)
+          .limit(1)
+          .get();
+
+      if (authSnapshot.docs.isNotEmpty) {
+        await authSnapshot.docs.first.reference.update({'phone': newPhone});
+      }
+    } catch (e) {
+      throw Exception('Failed to update auth lookup phone: ${e.toString()}');
+    }
+  }
+
+  // Helper: Update auth lookup active status
+  Future<void> _updateAuthLookupStatus(String phone, bool isActive) async {
+    try {
+      final authSnapshot = await _firestore
+          .collection(FirebaseConstants.usersCollection)
+          .where('phone', isEqualTo: phone)
+          .limit(1)
+          .get();
+
+      if (authSnapshot.docs.isNotEmpty) {
+        await authSnapshot.docs.first.reference.update({'isActive': isActive});
+      }
+    } catch (e) {
+      throw Exception('Failed to update auth lookup status: ${e.toString()}');
+    }
+  }
+
+  // Helper: Handle role change (migrate between collections)
+  Future<void> _handleRoleChange(UserModel oldUser, UserModel newUser) async {
+    try {
+      final oldCollection = oldUser.getCollectionName();
+      final newCollection = newUser.getCollectionName();
+
+      // Generate new ID for new role
+      final uid = UserIdGenerator.extractUidFromUserId(oldUser.id);
+      final newId = UserIdGenerator.generateUserId(newUser.role, uid);
+
+      // Employee ID stays the same - it's permanent!
+      final updatedUser = newUser.copyWith(
+        id: newId,
+        updatedAt: DateTime.now(),
+      );
+
+      // Create in new collection
+      await _firestore
+          .collection(newCollection)
+          .doc(newId)
+          .set(updatedUser.toJson());
+
+      // Update auth lookup
+      final authSnapshot = await _firestore
+          .collection(FirebaseConstants.usersCollection)
+          .where('phone', isEqualTo: oldUser.phone)
+          .limit(1)
+          .get();
+
+      if (authSnapshot.docs.isNotEmpty) {
+        await authSnapshot.docs.first.reference.update({
+          'role': _getRoleString(newUser.role),
+          'roleDocId': newId,
+        });
+      }
+
+      // Delete from old collection
+      await _firestore.collection(oldCollection).doc(oldUser.id).delete();
+
+      // Update department statistics
+      await _updateDepartmentOnUserUpdate(oldUser, updatedUser);
+    } catch (e) {
+      throw Exception('Failed to handle role change: ${e.toString()}');
+    }
+  }
+
   // Update department when user is created
   Future<void> _updateDepartmentOnUserCreate(
     String departmentId,
@@ -314,11 +584,11 @@ class FirebaseUserRepository implements UserRepository {
         .doc(departmentId);
 
     // Increment employee count
-    await deptRef.update({'employeeCount': FieldValue.increment(1)});
+    await deptRef.update({'employee_count': FieldValue.increment(1)});
 
     // If user is department head, set head info
     if (user.role == UserRole.departmentHead) {
-      await deptRef.update({'headId': user.id, 'headName': user.name});
+      await deptRef.update({'head_id': user.id, 'head_name': user.name});
     }
   }
 
@@ -343,14 +613,14 @@ class FirebaseUserRepository implements UserRepository {
         await _firestore
             .collection(FirebaseConstants.departmentsCollection)
             .doc(newUser.departmentId!)
-            .update({'employeeCount': FieldValue.increment(1)});
+            .update({'employee_count': FieldValue.increment(1)});
 
         // Set as head if dept head
         if (newUser.role == UserRole.departmentHead) {
           await _firestore
               .collection(FirebaseConstants.departmentsCollection)
               .doc(newUser.departmentId!)
-              .update({'headId': newUser.id, 'headName': newUser.name});
+              .update({'head_id': newUser.id, 'head_name': newUser.name});
         }
       }
     }
@@ -361,7 +631,7 @@ class FirebaseUserRepository implements UserRepository {
         await _firestore
             .collection(FirebaseConstants.departmentsCollection)
             .doc(newUser.departmentId!)
-            .update({'headId': newUser.id, 'headName': newUser.name});
+            .update({'head_id': newUser.id, 'head_name': newUser.name});
       }
       // Changed from dept head
       else if (oldUser.role == UserRole.departmentHead) {
@@ -375,7 +645,7 @@ class FirebaseUserRepository implements UserRepository {
     await _firestore
         .collection(FirebaseConstants.departmentsCollection)
         .doc(departmentId)
-        .update({'employeeCount': FieldValue.increment(-1)});
+        .update({'employee_count': FieldValue.increment(-1)});
   }
 
   // Clear department head
@@ -383,6 +653,6 @@ class FirebaseUserRepository implements UserRepository {
     await _firestore
         .collection(FirebaseConstants.departmentsCollection)
         .doc(departmentId)
-        .update({'headId': null, 'headName': null});
+        .update({'head_id': null, 'head_name': null});
   }
 }

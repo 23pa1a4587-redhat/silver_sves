@@ -9,17 +9,15 @@ class DepartmentModel with _$DepartmentModel {
   const factory DepartmentModel({
     required String id,
     required String name,
-    required String
-    code, // 4-letter code for employee ID generation (e.g., ACAD, ENG)
-    String? description,
-    String? headId, // Department head user ID
-    String? headName, // Department head name (denormalized)
-    @Default(0) int employeeCount,
-    @Default(0)
-    int employeeIdCounter, // Auto-increment counter for employee IDs
-    @Default(true) bool isActive,
-    DateTime? createdAt,
-    DateTime? updatedAt,
+    @Default('') String code, // Made optional with default
+    @Default('') String description,
+    @JsonKey(name: 'head_id') String? headId,
+    @JsonKey(name: 'head_name') String? headName,
+    @JsonKey(name: 'employee_count') @Default(0) int employeeCount,
+    @JsonKey(name: 'employee_id_counter') @Default(0) int employeeIdCounter,
+    @JsonKey(name: 'is_active') @Default(true) bool isActive,
+    @JsonKey(name: 'created_at') DateTime? createdAt,
+    @JsonKey(name: 'updated_at') DateTime? updatedAt,
   }) = _DepartmentModel;
 
   factory DepartmentModel.fromJson(Map<String, dynamic> json) =>

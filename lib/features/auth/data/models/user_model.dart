@@ -57,4 +57,16 @@ extension UserModelX on UserModel {
         return 'Employee';
     }
   }
+
+  /// Get the collection name for this user's role
+  String getCollectionName() {
+    switch (role) {
+      case UserRole.superAdmin:
+        return 'super_admins';
+      case UserRole.departmentHead:
+        return 'department_heads';
+      case UserRole.employee:
+        return 'employees';
+    }
+  }
 }

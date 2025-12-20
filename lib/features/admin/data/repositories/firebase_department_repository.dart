@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../../core/constants/firebase_constants.dart';
+import '../../../../core/utils/department_id_generator.dart';
 import '../../domain/repositories/department_repository.dart';
 import '../models/department_model.dart';
 
@@ -13,24 +14,33 @@ class FirebaseDepartmentRepository implements DepartmentRepository {
   @override
   Future<DepartmentModel> createDepartment(DepartmentModel department) async {
     try {
+      // Generate prefixed department ID
+      final departmentId = DepartmentIdGenerator.generateDepartmentId(
+        department.name,
+      );
+
+      // Set code to be the same as the ID
       final departmentData = department
-          .copyWith(createdAt: DateTime.now(), updatedAt: DateTime.now())
+          .copyWith(
+            id: departmentId,
+            code: departmentId, // Code = ID for consistency
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          )
           .toJson();
 
-      final docRef = await _firestore
+      // Create document with custom ID
+      await _firestore
           .collection(FirebaseConstants.departmentsCollection)
-          .add(departmentData);
+          .doc(departmentId)
+          .set(departmentData);
 
-      final createdDept = department.copyWith(
-        id: docRef.id,
+      return department.copyWith(
+        id: departmentId,
+        code: departmentId, // Code = ID
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
       );
-
-      // Update with the generated ID
-      await docRef.update({'id': docRef.id});
-
-      return createdDept;
     } catch (e) {
       throw Exception('Failed to create department: ${e.toString()}');
     }
@@ -107,9 +117,9 @@ class FirebaseDepartmentRepository implements DepartmentRepository {
           .collection(FirebaseConstants.departmentsCollection)
           .doc(deptId)
           .update({
-            'headId': userId,
-            'headName': userName,
-            'updatedAt': FieldValue.serverTimestamp(),
+            'head_id': userId,
+            'head_name': userName,
+            'updated_at': FieldValue.serverTimestamp(),
           });
     } catch (e) {
       throw Exception('Failed to assign department head: ${e.toString()}');
@@ -123,9 +133,9 @@ class FirebaseDepartmentRepository implements DepartmentRepository {
           .collection(FirebaseConstants.departmentsCollection)
           .doc(deptId)
           .update({
-            'headId': null,
-            'headName': null,
-            'updatedAt': FieldValue.serverTimestamp(),
+            'head_id': null,
+            'head_name': null,
+            'updated_at': FieldValue.serverTimestamp(),
           });
     } catch (e) {
       throw Exception('Failed to remove department head: ${e.toString()}');
@@ -168,7 +178,7 @@ class FirebaseDepartmentRepository implements DepartmentRepository {
       await _firestore
           .collection(FirebaseConstants.departmentsCollection)
           .doc(deptId)
-          .update({'employeeCount': FieldValue.increment(delta)});
+          .update({'employee_count': FieldValue.increment(delta)});
     } catch (e) {
       throw Exception('Failed to update employee count: ${e.toString()}');
     }

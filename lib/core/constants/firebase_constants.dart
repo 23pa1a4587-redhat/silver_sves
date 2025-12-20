@@ -3,10 +3,22 @@ class FirebaseConstants {
   FirebaseConstants._(); // Private constructor
 
   // Collection Names
+  // Auth lookup collection (lightweight: phone -> role -> roleDocId)
   static const String usersCollection = 'users';
+
+  // Role-specific collections (full user profiles)
+  static const String superAdminsCollection = 'super_admins';
+  static const String departmentHeadsCollection = 'department_heads';
+  static const String employeesCollection = 'employees';
+
   static const String departmentsCollection = 'departments';
   static const String leavesCollection = 'leaves';
   static const String leaveReplacementsCollection = 'leave_replacements';
+
+  // Role-based document ID prefixes
+  static const String superAdminPrefix = 'sa_';
+  static const String deptHeadPrefix = 'dh_';
+  static const String employeePrefix = 'emp_';
 
   // User Fields
   static const String userIdField = 'id';

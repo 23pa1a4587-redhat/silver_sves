@@ -87,6 +87,7 @@ class _UserTileState extends State<UserTile> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // Name + Inactive Badge
                           Row(
                             children: [
                               Flexible(
@@ -120,6 +121,8 @@ class _UserTileState extends State<UserTile> {
                                 ),
                             ],
                           ),
+
+                          // Employee ID (Full Width)
                           SizedBox(height: 4.h),
                           Row(
                             children: [
@@ -136,7 +139,13 @@ class _UserTileState extends State<UserTile> {
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
-                              SizedBox(width: 12.w),
+                            ],
+                          ),
+
+                          // Role Badge + Department
+                          SizedBox(height: 4.h),
+                          Row(
+                            children: [
                               Container(
                                 padding: EdgeInsets.symmetric(
                                   horizontal: 8.w,
@@ -157,12 +166,8 @@ class _UserTileState extends State<UserTile> {
                                   ),
                                 ),
                               ),
-                            ],
-                          ),
-                          if (widget.user.departmentName != null) ...[
-                            SizedBox(height: 4.h),
-                            Row(
-                              children: [
+                              if (widget.user.departmentName != null) ...[
+                                SizedBox(width: 8.w),
                                 Icon(
                                   Icons.business,
                                   size: 14.sp,
@@ -179,8 +184,8 @@ class _UserTileState extends State<UserTile> {
                                   ),
                                 ),
                               ],
-                            ),
-                          ],
+                            ],
+                          ),
                         ],
                       ),
                     ),

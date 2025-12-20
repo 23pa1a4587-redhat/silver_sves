@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_text_styles.dart';
+import '../../../../core/utils/employee_id_generator.dart';
 import '../../../../core/widgets/custom_button.dart';
 import '../../../../core/widgets/custom_text_field.dart';
 import '../../../auth/data/models/user_model.dart';
@@ -62,27 +63,20 @@ class _AddEditUserDialogState extends ConsumerState<AddEditUserDialog> {
   }
 
   Future<void> _generateEmployeeId() async {
-    if (_selectedDepartmentId == null) {
-      setState(() {
-        _errorMessage = 'Please select a department first';
-      });
-      return;
-    }
-
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final repository = ref.read(departmentRepositoryProvider);
-      final employeeId = await repository.generateEmployeeId(
-        _selectedDepartmentId!,
-      );
+      // Generate permanent employee ID (just a UUID)
+      final generator = EmployeeIdGenerator();
+      final employeeId = generator.generateEmployeeId();
+
       _employeeIdController.text = employeeId;
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to generate employee ID';
+        _errorMessage = 'Failed to generate employee ID: ${e.toString()}';
       });
     } finally {
       setState(() {
