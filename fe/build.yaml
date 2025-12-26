@@ -1,0 +1,13 @@
+targets:
+  $default:
+    builders:
+      freezed:
+        generate_for:
+          - lib/**/*.dart
+        options:
+          json_serializable: true
+      json_serializable:
+        options:
+          checked: true
+          explicit_to_json: true
+          field_rename: snake

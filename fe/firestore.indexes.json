@@ -1,0 +1,111 @@
+{
+    "indexes": [
+        {
+            "collectionGroup": "history",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "event_type",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "timestamp",
+                    "order": "DESCENDING"
+                }
+            ]
+        },
+        {
+            "collectionId": "leave_applications",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "employee_id",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "applied_at",
+                    "order": "DESCENDING"
+                }
+            ]
+        },
+        {
+            "collectionId": "leave_applications",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "department_id",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "status",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "applied_at",
+                    "order": "DESCENDING"
+                }
+            ]
+        },
+        {
+            "collectionId": "leave_applications",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "department_id",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "applied_at",
+                    "order": "DESCENDING"
+                }
+            ]
+        },
+        {
+            "collectionId": "leave_applications",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "status",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "applied_at",
+                    "order": "DESCENDING"
+                }
+            ]
+        },
+        {
+            "collectionId": "leave_applications",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "department_id",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "start_date",
+                    "order": "ASCENDING"
+                }
+            ]
+        },
+        {
+            "collectionId": "leave_applications",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "department_id",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "status",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "start_date",
+                    "order": "ASCENDING"
+                }
+            ]
+        }
+    ],
+    "fieldOverrides": []
+}
